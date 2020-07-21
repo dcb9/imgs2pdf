@@ -37,6 +37,11 @@ func main() {
 		pdf.AddPage()
 		pdf.Image(files[i], x, 0, &gopdf.Rect{W: 595.28, H: 840})
 	}
+
+	if *test {
+		return
+	}
+
 	fmt.Println("saving to ", *as, " ...")
 	pdf.WritePdf(*as)
 	fmt.Println("-----------------------")
