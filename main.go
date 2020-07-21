@@ -8,6 +8,7 @@ import "github.com/signintech/gopdf"
 var (
 	src = flag.String("src", "./", "the images directory path (png, jpg & jpeg) files")
 	as  = flag.String("as", "./result.pdf", "the result filename")
+	test  = flag.Bool("t", false, "for test")
 )
 
 func init() {
@@ -18,13 +19,17 @@ func main() {
 	fmt.Println("Reading files from (", *src, ") and saving the result as (", *as,")")
 	fmt.Println("-----------------------")
 	pdf := gopdf.GoPdf{}
-	pdf.Start(gopdf.Config{Unit: "pt", PageSize: gopdf.Rect{W: 595.28, H: 841.89}})
+	pdf.Start(gopdf.Config{Unit: gopdf.UnitPT, PageSize: gopdf.Rect{W: 595.28, H: 841.89}})
 	jpgs, _ := filepath.Glob(*src + "/*.jpg")
 	pngs, _ := filepath.Glob(*src + "/*.png")
 	jpegs, _ := filepath.Glob(*src + "/*.jpeg")
 	files := append(jpgs, append(jpegs, pngs...)...)
 	for i := 0; i < len(files); i++ {
 		fmt.Println(i+1, ")- adding ", files[i])
+		if *test {
+			continue
+		}
+
 		x := float64(0)
 		if x < 0 {
 			continue
