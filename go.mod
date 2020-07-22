@@ -1,4 +1,4 @@
-module github.com/alash3al/img2pdf
+module github.com/dcb9/imgs2pdf
 
 go 1.14
 
