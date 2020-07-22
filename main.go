@@ -4,15 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gobuffalo/packr/v2"
-	"github.com/nfnt/resize"
 	"image"
 	"image/jpeg"
-	_ "image/jpeg"
 	"image/png"
-	_ "image/png"
 	"io"
 	"os"
-	"regexp"
 )
 import "flag"
 import "path/filepath"
@@ -87,8 +83,6 @@ func main() {
 			}
 		}
 
-
-
 		file, err := os.Open(files[i])
 		if err != nil {
 			fmt.Printf("Could not open file %s > %s\n", files[i], err.Error())
@@ -120,7 +114,7 @@ func main() {
 		/////////////////////// 右边 开始 ///////////////////////
 		tempImgBuf.Reset()
 		// 先把右边的存成一张图
-		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, imgCfg.Width/2, 0, imgCfg.Width, imgCfg.Height, 75)
+		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, imgCfg.Width/2, 0, imgCfg.Width, imgCfg.Height)
 		if err != nil {
 			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
 			os.Exit(3)
@@ -164,7 +158,7 @@ func main() {
 		/////////////////////// 左边 开始 ///////////////////////
 		tempImgBuf.Reset()
 		// 先把右边的存成一张图
-		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, 0, 0, imgCfg.Width/2, imgCfg.Height, 75)
+		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, 0, 0, imgCfg.Width/2, imgCfg.Height)
 		if err != nil {
 			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
 			os.Exit(3)
@@ -181,13 +175,6 @@ func main() {
 			(height - h) / 2,
 			&gopdf.Rect{W: w, H: h})
 		/////////////////////// 左边 结束 ///////////////////////
-
-
-
-
-
-		// 通过对 x 和 y 的调整，达到让图片位于中心点
-		//pdf.Image(files[i], (width - w) / 2, (height - h) / 2, &gopdf.Rect{W: w, H: h})
 	}
 
 	if *test {
@@ -207,21 +194,6 @@ type imageBuff struct {
 }
 func (i *imageBuff) ID() string {
 	return i.id
-}
-
-func getPage(path string, reg *regexp.Regexp) string {
-	//regexp.Compile()
-	baseName := filepath.Base(path)
-	ext := filepath.Ext(baseName)
-
-	page := baseName[:len(baseName) - len(ext)] // 去掉 extension
-	if reg != nil {
-		matches :=reg.FindSubmatch([]byte(page))
-		if len(matches) >= 2 {
-			page = string(matches[1])
-		}
-	}
-	return page
 }
 
 func getImgConfig(r io.Reader) (*image.Config, error) {
@@ -244,7 +216,7 @@ func min(a, b float64) float64 {
 	return b
 }
 
-func clip(in io.Reader, out io.Writer, x0, y0, x1, y1, quality int) error {
+func clip(in io.Reader, out io.Writer, x0, y0, x1, y1 int) error {
 	origin, fm, err := image.Decode(in)
 	if err != nil {
 		return err
@@ -254,7 +226,7 @@ func clip(in io.Reader, out io.Writer, x0, y0, x1, y1, quality int) error {
 	case "jpeg":
 		img := origin.(*image.YCbCr)
 		subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.YCbCr)
-		return jpeg.Encode(out, subImg, &jpeg.Options{Quality: quality})
+		return jpeg.Encode(out, subImg, nil)
 	case "png":
 		switch origin.(type) {
 		case *image.NRGBA:
@@ -272,37 +244,6 @@ func clip(in io.Reader, out io.Writer, x0, y0, x1, y1, quality int) error {
 		}
 
 		return fmt.Errorf("unsupport sub format of png")
-	default:
-		return fmt.Errorf("unsupport format")
-	}
-}
-
-/*
-* 缩略图生成
-* 入参:
-* 规则: 如果width 或 height 其中有一个为0，则大小不变 如果精度为0则精度保持不变
-* 矩形坐标系起点是左上
-* 返回:error
- */
-func scale(in io.Reader, out io.Writer, width, height, quality int) error {
-	origin, fm, err := image.Decode(in)
-	if err != nil {
-		return err
-	}
-	if width == 0 || height == 0 {
-		width = origin.Bounds().Max.X
-		height = origin.Bounds().Max.Y
-	}
-	if quality == 0 {
-		quality = 100
-	}
-	canvas := resize.Thumbnail(uint(width), uint(height), origin, resize.Lanczos3)
-
-	switch fm {
-	case "jpeg":
-		return jpeg.Encode(out, canvas, &jpeg.Options{Quality: quality})
-	case "png":
-		return png.Encode(out, canvas)
 	default:
 		return fmt.Errorf("unsupport format")
 	}
