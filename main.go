@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gobuffalo/packr/v2"
+	"github.com/nfnt/resize"
 	"image"
+	"image/jpeg"
 	_ "image/jpeg"
+	"image/png"
 	_ "image/png"
+	"io"
 	"os"
 	"regexp"
 )
@@ -19,16 +23,16 @@ var (
 	as  = flag.String("as", "./result.pdf", "the result filename")
 	test  = flag.Bool("t", false, "for test")
 	abort = flag.Bool("abort", true, "abort if error occurs")
-	pageRegStr = flag.String("page-reg", "", "page regex matches page from filename")
+	//verticalParts = flag.Int("vertical-parts", 1, "split vertical to x parts")
+	//horizontalParts = flag.Int("horizontal-parts", 1, "split horizontal to x parts")
 )
 
 func init() {
 	flag.Parse()
 }
 
-var pageReg *regexp.Regexp
 var width float64 = 210
-var height float64 = 157
+var height float64 = 315
 var A4 = gopdf.Rect{W: width, H: height }
 
 func main() {
@@ -44,9 +48,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	_tr := bytes.NewReader(timesTTF)
-	_ = _tr
-	//if err = pdf.AddTTFFont(font, "times.ttf"); err != nil {
 	if err = pdf.AddTTFFontByReader(font, bytes.NewReader(timesTTF)); err != nil {
 		fmt.Printf("Add font[%s] err > %s\n", font, err.Error())
 		os.Exit(1)
@@ -58,14 +59,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	if *pageRegStr != "" {
-		pageReg, err = regexp.Compile(*pageRegStr)
-		if err != nil {
-			fmt.Printf("invalid reg expression: %s with error: %s\n", *pageRegStr, err.Error())
-			os.Exit(1)
-		}
-	}
-
 	fmt.Println("Reading files from (", *src, ") and saving the result as (", *as,")")
 	fmt.Println("-----------------------")
 
@@ -74,6 +67,8 @@ func main() {
 	pngs, _ := filepath.Glob(*src + "/*.png")
 	jpegs, _ := filepath.Glob(*src + "/*.jpeg")
 	files := append(jpgs, append(jpegs, pngs...)...)
+
+	tempImgBuf := &bytes.Buffer{}
 	for i := 0; i < len(files); i++ {
 		fmt.Println(i+1, ")- adding ", files[i])
 		if *test {
@@ -83,15 +78,38 @@ func main() {
 		if x < 0 {
 			continue
 		}
-		pdf.AddPage()
 
-		pdf.SetMarginLeft(width - 10)
-		pdf.SetMarginTop(height - 2)
-		// use file name as page
-		page := getPage(files[i], pageReg)
-		pdf.Text(page)
+		fileInfo, err := os.Stat(files[i])
+		if err != nil {
+			fmt.Printf("Could not open file %s > %s\n", files[i], err.Error())
+			if *abort {
+				os.Exit(3)
+			}
+		}
 
-		imgCfg, err := getImgConfig(files[i])
+
+
+		file, err := os.Open(files[i])
+		if err != nil {
+			fmt.Printf("Could not open file %s > %s\n", files[i], err.Error())
+			if *abort {
+				os.Exit(3)
+			}
+		}
+
+		fileInBytes := make([]byte, fileInfo.Size())
+
+		n, err := file.Read(fileInBytes)
+		if err != nil || int64(n) != fileInfo.Size() {
+			fmt.Printf("Could not read file %s\n", files[i])
+			if *abort {
+				os.Exit(3)
+			}
+		}
+		file.Close()
+
+
+		imgCfg, err := getImgConfig(bytes.NewReader(fileInBytes))
 		if err != nil {
 			fmt.Printf("get img config[%s] > %s\n", files[i], err.Error())
 			if *abort {
@@ -99,7 +117,21 @@ func main() {
 			}
 		}
 
-		imgWidth := Px2Pt(float64(imgCfg.Width))
+		/////////////////////// 右边 开始 ///////////////////////
+		tempImgBuf.Reset()
+		// 先把右边的存成一张图
+		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, imgCfg.Width/2, 0, imgCfg.Width, imgCfg.Height, 75)
+		if err != nil {
+			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
+			os.Exit(3)
+		}
+
+		pdf.AddPage()
+		pdf.SetMarginLeft(width - 20)
+		pdf.SetMarginTop(height - 2)
+		pdf.Text(fmt.Sprintf("%d/%d", i * 2 + 1, len(files) * 2))
+
+		imgWidth := Px2Pt(float64(imgCfg.Width)) / 2
 		// 四周留 20 mm 的边距
 		w := min(width - 20, imgWidth)
 		var scale float64 = 1
@@ -120,9 +152,42 @@ func main() {
 		// 根据高度同比缩放
 		w = w * scale
 
+		pdf.ImageByHolder(
+			&imageBuff{Reader: tempImgBuf, id: files[i] + "_right"},
+			(width - w) / 2,
+			(height - h) / 2,
+			&gopdf.Rect{W: w, H: h})
+		/////////////////////// 右边 结束 ///////////////////////
+
+		// 再把左边的存成一张图
+
+		/////////////////////// 左边 开始 ///////////////////////
+		tempImgBuf.Reset()
+		// 先把右边的存成一张图
+		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, 0, 0, imgCfg.Width/2, imgCfg.Height, 75)
+		if err != nil {
+			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
+			os.Exit(3)
+		}
+
+		pdf.AddPage()
+		pdf.SetMarginLeft(width - 20)
+		pdf.SetMarginTop(height - 2)
+		pdf.Text(fmt.Sprintf("%d/%d", i * 2 + 2, len(files) * 2))
+
+		pdf.ImageByHolder(
+			&imageBuff{Reader: tempImgBuf, id: files[i] + "_left"},
+			(width - w) / 2,
+			(height - h) / 2,
+			&gopdf.Rect{W: w, H: h})
+		/////////////////////// 左边 结束 ///////////////////////
+
+
+
+
 
 		// 通过对 x 和 y 的调整，达到让图片位于中心点
-		pdf.Image(files[i], (width - w) / 2, (height - h) / 2, &gopdf.Rect{W: w, H: h})
+		//pdf.Image(files[i], (width - w) / 2, (height - h) / 2, &gopdf.Rect{W: w, H: h})
 	}
 
 	if *test {
@@ -134,6 +199,14 @@ func main() {
 	fmt.Println("-----------------------")
 	fmt.Println("Done, have fun ;)")
 	fmt.Println("Created by Mohammed Al Ashaal <https://www.alash3al.xyz>")
+}
+
+type imageBuff struct {
+	id string
+	io.Reader
+}
+func (i *imageBuff) ID() string {
+	return i.id
 }
 
 func getPage(path string, reg *regexp.Regexp) string {
@@ -151,14 +224,8 @@ func getPage(path string, reg *regexp.Regexp) string {
 	return page
 }
 
-func getImgConfig(imgPath string) (*image.Config, error) {
-	reader, err := os.Open(imgPath)
-	if err != nil {
-		return nil, fmt.Errorf("open file > %w", err)
-	}
-	defer reader.Close()
-
-	cfg, _, err := image.DecodeConfig(reader)
+func getImgConfig(r io.Reader) (*image.Config, error) {
+	cfg, _, err := image.DecodeConfig(r)
 	if err != nil {
 		return nil, err
 	}
@@ -175,4 +242,68 @@ func min(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+func clip(in io.Reader, out io.Writer, x0, y0, x1, y1, quality int) error {
+	origin, fm, err := image.Decode(in)
+	if err != nil {
+		return err
+	}
+
+	switch fm {
+	case "jpeg":
+		img := origin.(*image.YCbCr)
+		subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.YCbCr)
+		return jpeg.Encode(out, subImg, &jpeg.Options{Quality: quality})
+	case "png":
+		switch origin.(type) {
+		case *image.NRGBA:
+			img := origin.(*image.NRGBA)
+			subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.NRGBA)
+			return png.Encode(out, subImg)
+		case *image.RGBA:
+			img := origin.(*image.RGBA)
+			subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.RGBA)
+			return png.Encode(out, subImg)
+		case *image.Paletted:
+			img := origin.(*image.Paletted)
+			subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.Paletted)
+			return png.Encode(out, subImg)
+		}
+
+		return fmt.Errorf("unsupport sub format of png")
+	default:
+		return fmt.Errorf("unsupport format")
+	}
+}
+
+/*
+* 缩略图生成
+* 入参:
+* 规则: 如果width 或 height 其中有一个为0，则大小不变 如果精度为0则精度保持不变
+* 矩形坐标系起点是左上
+* 返回:error
+ */
+func scale(in io.Reader, out io.Writer, width, height, quality int) error {
+	origin, fm, err := image.Decode(in)
+	if err != nil {
+		return err
+	}
+	if width == 0 || height == 0 {
+		width = origin.Bounds().Max.X
+		height = origin.Bounds().Max.Y
+	}
+	if quality == 0 {
+		quality = 100
+	}
+	canvas := resize.Thumbnail(uint(width), uint(height), origin, resize.Lanczos3)
+
+	switch fm {
+	case "jpeg":
+		return jpeg.Encode(out, canvas, &jpeg.Options{Quality: quality})
+	case "png":
+		return png.Encode(out, canvas)
+	default:
+		return fmt.Errorf("unsupport format")
+	}
 }
