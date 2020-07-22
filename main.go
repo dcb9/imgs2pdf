@@ -5,11 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gobuffalo/packr/v2"
-	"github.com/nfnt/resize"
 	"github.com/signintech/gopdf"
 	"image"
 	"image/jpeg"
-	"image/png"
+	_ "image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -66,7 +65,6 @@ func main() {
 	files := append(jpgs, append(jpegs, pngs...)...)
 
 	tempImgBuf := &bytes.Buffer{}
-	//tempImgBuf2 := &bytes.Buffer{}
 	quality := 10
 	for i := 0; i < len(files); i++ {
 		fmt.Println(i+1, ")- adding ", files[i])
@@ -145,12 +143,6 @@ func main() {
 			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
 			os.Exit(3)
 		}
-		//tempImgBuf2.Reset()
-		//err = compress(tempImgBuf, tempImgBuf2, imgCfg.Width/2, imgCfg.Height / 1, resize.NearestNeighbor)
-		//if err != nil {
-		//	fmt.Printf("compress image error[%s] %s\n", files[i], err.Error())
-		//	os.Exit(3)
-		//}
 
 		pdf.AddPage()
 		pdf.SetMarginLeft(width - 20)
@@ -175,12 +167,6 @@ func main() {
 			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
 			os.Exit(3)
 		}
-		//tempImgBuf2.Reset()
-		//err = compress(tempImgBuf, tempImgBuf2, imgCfg.Width/ 2, imgCfg.Height, resize.NearestNeighbor)
-		//if err != nil {
-		//	fmt.Printf("compress image error[%s] %s\n", files[i], err.Error())
-		//	os.Exit(3)
-		//}
 
 		pdf.AddPage()
 		pdf.SetMarginLeft(width - 20)
@@ -270,21 +256,3 @@ func clip(in io.Reader, out io.Writer, x0, y0, x1, y1 int, quality int) error {
 	}
 }
 
-func compress(in io.Reader, out io.Writer, width, height int,  ifn resize.InterpolationFunction) error {
-	width = width / 2
-	height = height / 2
-	origin, fm, err := image.Decode(in)
-	if err != nil {
-		return err
-	}
-	canvas := resize.Resize(uint(width), uint(height), origin, ifn)
-
-	switch fm {
-	case "jpeg":
-		return jpeg.Encode(out, canvas, nil)
-	case "png":
-		return png.Encode(out, canvas)
-	default:
-		return fmt.Errorf("unsupport format")
-	}
-}
