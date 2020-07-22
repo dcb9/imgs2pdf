@@ -65,7 +65,7 @@ func main() {
 	files := append(jpgs, append(jpegs, pngs...)...)
 
 	tempImgBuf := &bytes.Buffer{}
-	quality := 10
+	quality := 5
 	for i := 0; i < len(files); i++ {
 		fmt.Println(i+1, ")- adding ", files[i])
 		if *test {
