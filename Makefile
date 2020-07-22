@@ -6,9 +6,14 @@ buildBinary:
 cleanBinary:
 	packr2 clean
 
-.PHONY: win
-win: buildBinary buildWin cleanBinary
-
 .PHONY: buildWin
 buildWin:
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o imgs2pdf.exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o imgs2pdf.exe .
+
+.PHONY: compressWin
+compressWin:
+	tar cfJ imgs2pdf.tar.xz imgs2pdf.exe
+
+.PHONY: win
+win: buildBinary buildWin cleanBinary compressWin
+
