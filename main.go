@@ -2,17 +2,18 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"github.com/gobuffalo/packr/v2"
+	"github.com/nfnt/resize"
+	"github.com/signintech/gopdf"
 	"image"
 	"image/jpeg"
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 )
-import "flag"
-import "path/filepath"
-import "github.com/signintech/gopdf"
 
 var (
 	src = flag.String("src", "./", "the images directory path (png, jpg & jpeg) files")
@@ -65,6 +66,8 @@ func main() {
 	files := append(jpgs, append(jpegs, pngs...)...)
 
 	tempImgBuf := &bytes.Buffer{}
+	//tempImgBuf2 := &bytes.Buffer{}
+	quality := 10
 	for i := 0; i < len(files); i++ {
 		fmt.Println(i+1, ")- adding ", files[i])
 		if *test {
@@ -111,20 +114,7 @@ func main() {
 			}
 		}
 
-		/////////////////////// 右边 开始 ///////////////////////
-		tempImgBuf.Reset()
-		// 先把右边的存成一张图
-		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, imgCfg.Width/2, 0, imgCfg.Width, imgCfg.Height)
-		if err != nil {
-			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
-			os.Exit(3)
-		}
-
-		pdf.AddPage()
-		pdf.SetMarginLeft(width - 20)
-		pdf.SetMarginTop(height - 2)
-		pdf.Text(fmt.Sprintf("%d/%d", i * 2 + 1, len(files) * 2))
-
+		/////////////////////// 计算尺寸 开始 ///////////////////////
 		imgWidth := Px2Pt(float64(imgCfg.Width)) / 2
 		// 四周留 20 mm 的边距
 		w := min(width - 20, imgWidth)
@@ -145,6 +135,28 @@ func main() {
 
 		// 根据高度同比缩放
 		w = w * scale
+		/////////////////////// 计算尺寸 结束 ///////////////////////
+
+		/////////////////////// 右边 开始 ///////////////////////
+		tempImgBuf.Reset()
+		// 先把右边的存成一张图
+		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, imgCfg.Width/2, 0, imgCfg.Width, imgCfg.Height, quality)
+		if err != nil {
+			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
+			os.Exit(3)
+		}
+		//tempImgBuf2.Reset()
+		//err = compress(tempImgBuf, tempImgBuf2, imgCfg.Width/2, imgCfg.Height / 1, resize.NearestNeighbor)
+		//if err != nil {
+		//	fmt.Printf("compress image error[%s] %s\n", files[i], err.Error())
+		//	os.Exit(3)
+		//}
+
+		pdf.AddPage()
+		pdf.SetMarginLeft(width - 20)
+		pdf.SetMarginTop(height - 2)
+		pdf.Text(fmt.Sprintf("%d/%d", i * 2 + 1, len(files) * 2))
+
 
 		pdf.ImageByHolder(
 			&imageBuff{Reader: tempImgBuf, id: files[i] + "_right"},
@@ -158,11 +170,17 @@ func main() {
 		/////////////////////// 左边 开始 ///////////////////////
 		tempImgBuf.Reset()
 		// 先把右边的存成一张图
-		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, 0, 0, imgCfg.Width/2, imgCfg.Height)
+		err = clip(bytes.NewReader(fileInBytes), tempImgBuf, 0, 0, imgCfg.Width/2, imgCfg.Height, quality)
 		if err != nil {
 			fmt.Printf("create clip error[%s] %s\n", files[i], err.Error())
 			os.Exit(3)
 		}
+		//tempImgBuf2.Reset()
+		//err = compress(tempImgBuf, tempImgBuf2, imgCfg.Width/ 2, imgCfg.Height, resize.NearestNeighbor)
+		//if err != nil {
+		//	fmt.Printf("compress image error[%s] %s\n", files[i], err.Error())
+		//	os.Exit(3)
+		//}
 
 		pdf.AddPage()
 		pdf.SetMarginLeft(width - 20)
@@ -216,7 +234,10 @@ func min(a, b float64) float64 {
 	return b
 }
 
-func clip(in io.Reader, out io.Writer, x0, y0, x1, y1 int) error {
+func clip(in io.Reader, out io.Writer, x0, y0, x1, y1 int, quality int) error {
+	// 统一把格式调整成 jpeg，不然后面的 Resize 会成空白图，
+	// todo:
+	// 具体是哪的问题有待分析，反正先都弄成 jpeg 就可以了
 	origin, fm, err := image.Decode(in)
 	if err != nil {
 		return err
@@ -226,24 +247,43 @@ func clip(in io.Reader, out io.Writer, x0, y0, x1, y1 int) error {
 	case "jpeg":
 		img := origin.(*image.YCbCr)
 		subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.YCbCr)
-		return jpeg.Encode(out, subImg, nil)
+		return jpeg.Encode(out, subImg, &jpeg.Options{Quality: quality})
 	case "png":
 		switch origin.(type) {
 		case *image.NRGBA:
 			img := origin.(*image.NRGBA)
 			subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.NRGBA)
-			return png.Encode(out, subImg)
+			return jpeg.Encode(out, subImg, &jpeg.Options{Quality: quality})
 		case *image.RGBA:
 			img := origin.(*image.RGBA)
 			subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.RGBA)
-			return png.Encode(out, subImg)
+			return jpeg.Encode(out, subImg, &jpeg.Options{Quality: quality})
 		case *image.Paletted:
 			img := origin.(*image.Paletted)
 			subImg := img.SubImage(image.Rect(x0, y0, x1, y1)).(*image.Paletted)
-			return png.Encode(out, subImg)
+			return jpeg.Encode(out, subImg, &jpeg.Options{Quality: quality})
 		}
 
 		return fmt.Errorf("unsupport sub format of png")
+	default:
+		return fmt.Errorf("unsupport format")
+	}
+}
+
+func compress(in io.Reader, out io.Writer, width, height int,  ifn resize.InterpolationFunction) error {
+	width = width / 2
+	height = height / 2
+	origin, fm, err := image.Decode(in)
+	if err != nil {
+		return err
+	}
+	canvas := resize.Resize(uint(width), uint(height), origin, ifn)
+
+	switch fm {
+	case "jpeg":
+		return jpeg.Encode(out, canvas, nil)
+	case "png":
+		return png.Encode(out, canvas)
 	default:
 		return fmt.Errorf("unsupport format")
 	}
